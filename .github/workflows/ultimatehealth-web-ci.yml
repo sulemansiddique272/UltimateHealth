@@ -1,4 +1,4 @@
-name: UltimateHealth Web CI
+name: UltimateHealth Web CI/CD
 
 on:
   push:
@@ -38,3 +38,58 @@ jobs:
 
       - name: Build Docker image
         run: docker build -t ultimatehealth-web:ci -f Dockerfile .
+
+  deploy-frontend:
+    name: Deploy Frontend to EC2
+    runs-on: self-hosted
+    needs: frontend-ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/web'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Back up current frontend image
+        run: docker image tag ultimatehealth-web:latest ultimatehealth-web:rollback
+
+      - name: Build updated frontend image
+        run: docker build -t ultimatehealth-web:latest -f Dockerfile .
+
+      - name: Deploy and verify frontend
+        shell: bash
+        run: |
+          docker stop ultimatehealth-web || true
+          docker rm ultimatehealth-web || true
+
+          if ! docker run -d \
+            --name ultimatehealth-web \
+            --restart unless-stopped \
+            -p 127.0.0.1:5000:5000 \
+            ultimatehealth-web:latest; then
+            echo "New container failed to start; restoring previous image."
+            docker rm -f ultimatehealth-web || true
+            docker run -d \
+              --name ultimatehealth-web \
+              --restart unless-stopped \
+              -p 127.0.0.1:5000:5000 \
+              ultimatehealth-web:rollback
+            exit 1
+          fi
+
+          for i in $(seq 1 12); do
+            if curl -fsS http://127.0.0.1:5000/web/en -o /dev/null; then
+              echo "Frontend is responding."
+              exit 0
+            fi
+            sleep 5
+          done
+
+          echo "Health check failed; restoring previous image."
+          docker logs --tail 50 ultimatehealth-web || true
+          docker rm -f ultimatehealth-web || true
+          docker run -d \
+            --name ultimatehealth-web \
+            --restart unless-stopped \
+            -p 127.0.0.1:5000:5000 \
+            ultimatehealth-web:rollback
+          exit 1
