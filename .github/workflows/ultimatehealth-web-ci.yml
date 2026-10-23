@@ -1,0 +1,40 @@
+name: UltimateHealth Web CI
+
+on:
+  push:
+    branches:
+      - web
+  pull_request:
+    branches:
+      - web
+
+permissions:
+  contents: read
+
+jobs:
+  frontend-ci:
+    name: Test and Build Frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install pnpm
+        run: npm install --global pnpm
+
+      - name: Install dependencies
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+
+      - name: Run frontend tests
+        working-directory: web
+        run: pnpm run test
+
+      - name: Build Docker image
+        run: docker build -t ultimatehealth-web:ci -f Dockerfile .
